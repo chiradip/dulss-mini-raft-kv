@@ -1,0 +1,65 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.tutorial.raftkv'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Logging
+    implementation 'org.slf4j:slf4j-api:2.0.9'
+    implementation 'ch.qos.logback:logback-classic:1.5.13'
+
+    // Networking
+    implementation 'io.netty:netty-all:4.1.100.Final'
+
+    // JSON serialization
+    implementation 'com.google.code.gson:gson:2.10.1'
+
+    // Testing
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.mockito:mockito-core:5.5.0'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+application {
+    mainClass = 'com.tutorial.raftkv.Main'
+}
+
+tasks.register('runCluster', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tutorial.raftkv.ClusterRunner'
+    description = 'Run a Raft cluster with configurable nodes. Usage: gradle runCluster --args="<nodeCount> <basePort>"'
+
+    // Pass command line arguments if provided
+    if (project.hasProperty('args')) {
+        args project.args.split(' ')
+    }
+}
+
+tasks.register('runClient', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.tutorial.raftkv.ClientRunner'
+    standardInput = System.in
+    description = 'Run an interactive client. Usage: gradle runClient --args="<nodeCount> <basePort>"'
+
+    // Pass command line arguments if provided
+    if (project.hasProperty('args')) {
+        args project.args.split(' ')
+    }
+}
+
+test {
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
+}

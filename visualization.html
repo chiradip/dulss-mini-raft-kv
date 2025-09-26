@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Raft-KV: Consensus, Consistency & Concurrency Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 40px 0;
+            color: white;
+        }
+
+        h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .section {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin: 30px 0;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+
+        h3 {
+            color: #764ba2;
+            margin: 20px 0 10px 0;
+            font-size: 1.3em;
+        }
+
+        /* Raft Visualization */
+        .raft-cluster {
+            display: flex;
+            justify-content: space-around;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+
+        .node {
+            width: 200px;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            position: relative;
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+
+        .node:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.2);
+        }
+
+        .node-follower {
+            background: linear-gradient(135deg, #e0e0e0 0%, #bdbdbd 100%);
+            border: 3px solid #9e9e9e;
+        }
+
+        .node-candidate {
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            border: 3px solid #ff9800;
+            animation: pulse 2s infinite;
+        }
+
+        .node-leader {
+            background: linear-gradient(135deg, #e8f5e9 0%, #a5d6a7 100%);
+            border: 3px solid #4caf50;
+            box-shadow: 0 0 30px rgba(76, 175, 80, 0.3);
+        }
+
+        .node-title {
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+
+        .node-state {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .node-info {
+            font-size: 0.8em;
+            color: #888;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        /* MVCC Visualization */
+        .mvcc-timeline {
+            position: relative;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .version-line {
+            display: flex;
+            align-items: center;
+            margin: 15px 0;
+            position: relative;
+        }
+
+        .version-number {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 20px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+
+        .version-content {
+            flex: 1;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .version-key {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .version-value {
+            color: #667eea;
+            margin-left: 10px;
+        }
+
+        .version-timestamp {
+            font-size: 0.8em;
+            color: #999;
+            margin-left: 20px;
+        }
+
+        /* Transaction Visualization */
+        .transaction-demo {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .tx-timeline {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #e0e0e0;
+        }
+
+        .tx-title {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+
+        .tx-step {
+            margin: 15px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            position: relative;
+        }
+
+        .tx-snapshot {
+            border-left-color: #4caf50;
+            background: #f1f8e9;
+        }
+
+        .tx-write {
+            border-left-color: #ff9800;
+            background: #fff3e0;
+        }
+
+        .tx-read {
+            border-left-color: #2196f3;
+            background: #e3f2fd;
+        }
+
+        /* RPC Flow Diagram */
+        .rpc-flow {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 40px 0;
+            position: relative;
+        }
+
+        .rpc-entity {
+            width: 150px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            z-index: 2;
+        }
+
+        .rpc-arrow {
+            position: absolute;
+            top: 50%;
+            left: 150px;
+            right: 150px;
+            height: 2px;
+            background: #667eea;
+            z-index: 1;
+        }
+
+        .rpc-arrow::after {
+            content: '';
+            position: absolute;
+            right: -10px;
+            top: -4px;
+            width: 0;
+            height: 0;
+            border-left: 10px solid #667eea;
+            border-top: 5px solid transparent;
+            border-bottom: 5px solid transparent;
+        }
+
+        .rpc-label {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.9em;
+            color: #667eea;
+            white-space: nowrap;
+        }
+
+        /* Code Blocks */
+        .code-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+
+        .code-comment {
+            color: #6a9fb5;
+        }
+
+        .code-keyword {
+            color: #ac4142;
+        }
+
+        .code-string {
+            color: #90a959;
+        }
+
+        .code-number {
+            color: #d28445;
+        }
+
+        /* Interactive Elements */
+        .button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            margin: 10px 5px;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+
+        .demo-controls {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        /* Architecture Diagram */
+        .architecture {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .arch-layer {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            border: 2px solid #e0e0e0;
+            position: relative;
+        }
+
+        .arch-layer-title {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .arch-components {
+            margin-top: 15px;
+        }
+
+        .arch-component {
+            background: #f5f5f5;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+
+        /* Log Replication Visualization */
+        .log-entries {
+            display: flex;
+            margin: 20px 0;
+            align-items: center;
+        }
+
+        .log-entry {
+            width: 100px;
+            padding: 15px 10px;
+            background: white;
+            border: 2px solid #667eea;
+            margin-right: 10px;
+            text-align: center;
+            border-radius: 8px;
+            position: relative;
+        }
+
+        .log-entry-committed {
+            background: #e8f5e9;
+            border-color: #4caf50;
+        }
+
+        .log-entry-pending {
+            background: #fff3e0;
+            border-color: #ff9800;
+        }
+
+        .log-term {
+            font-size: 0.8em;
+            color: #999;
+        }
+
+        .log-command {
+            font-weight: bold;
+            color: #333;
+            margin: 5px 0;
+        }
+
+        .log-index {
+            font-size: 0.8em;
+            color: #666;
+        }
+
+        /* Status indicators */
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 5px;
+            animation: blink 2s infinite;
+        }
+
+        .status-green {
+            background: #4caf50;
+        }
+
+        .status-yellow {
+            background: #ff9800;
+        }
+
+        .status-red {
+            background: #f44336;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Info boxes */
+        .info-box {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+
+        .info-box-title {
+            font-weight: bold;
+            color: #1976d2;
+            margin-bottom: 5px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .raft-cluster {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .transaction-demo {
+                grid-template-columns: 1fr;
+            }
+
+            .architecture {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Mini Raft-KV Store</h1>
+            <p class="subtitle">Consensus • Consistency • Concurrency</p>
+        </header>
+
+        <!-- Architecture Overview -->
+        <section class="section">
+            <h2>🏗️ System Architecture</h2>
+            <p>Our distributed KV store combines three fundamental concepts:</p>
+
+            <div class="architecture">
+                <div class="arch-layer">
+                    <div class="arch-layer-title">Client Layer</div>
+                    <div class="arch-components">
+                        <div class="arch-component">NetworkKVClient</div>
+                        <div class="arch-component">ClientRunner (CLI)</div>
+                        <div class="arch-component">Leader Redirection</div>
+                    </div>
+                </div>
+
+                <div class="arch-layer">
+                    <div class="arch-layer-title">Consensus Layer</div>
+                    <div class="arch-components">
+                        <div class="arch-component">RaftCore</div>
+                        <div class="arch-component">Leader Election</div>
+                        <div class="arch-component">Log Replication</div>
+                        <div class="arch-component">NettyRPC</div>
+                    </div>
+                </div>
+
+                <div class="arch-layer">
+                    <div class="arch-layer-title">Storage Layer</div>
+                    <div class="arch-components">
+                        <div class="arch-component">MVCCStore</div>
+                        <div class="arch-component">VersionedValue</div>
+                        <div class="arch-component">Transactions</div>
+                        <div class="arch-component">Snapshot Isolation</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Raft Consensus -->
+        <section class="section">
+            <h2>🗳️ Raft Consensus Algorithm</h2>
+            <p>Ensures all nodes agree on the same sequence of operations.</p>
+
+            <h3>Node States & Leader Election</h3>
+            <div class="raft-cluster" id="raftCluster">
+                <div class="node node-leader">
+                    <div class="node-title">Node 1</div>
+                    <div class="node-state">
+                        <span class="status-indicator status-green"></span>LEADER
+                    </div>
+                    <div class="node-info">
+                        Term: 2<br>
+                        Port: 5001<br>
+                        Log: [1,2,3,4]
+                    </div>
+                </div>
+
+                <div class="node node-follower">
+                    <div class="node-title">Node 2</div>
+                    <div class="node-state">
+                        <span class="status-indicator status-green"></span>FOLLOWER
+                    </div>
+                    <div class="node-info">
+                        Term: 2<br>
+                        Port: 5002<br>
+                        Following: Node 1
+                    </div>
+                </div>
+
+                <div class="node node-follower">
+                    <div class="node-title">Node 3</div>
+                    <div class="node-state">
+                        <span class="status-indicator status-green"></span>FOLLOWER
+                    </div>
+                    <div class="node-info">
+                        Term: 2<br>
+                        Port: 5003<br>
+                        Following: Node 1
+                    </div>
+                </div>
+            </div>
+
+            <div class="demo-controls">
+                <button onclick="simulateElection()">Simulate Leader Election</button>
+                <button onclick="simulateFailure()">Simulate Node Failure</button>
+                <button onclick="resetRaft()">Reset Cluster</button>
+            </div>
+
+            <h3>Log Replication Process</h3>
+            <div class="info-box">
+                <div class="info-box-title">How It Works:</div>
+                1. Client sends command to Leader<br>
+                2. Leader appends to its log<br>
+                3. Leader replicates to Followers via AppendEntries RPC<br>
+                4. Once majority acknowledges → commit<br>
+                5. Apply to state machine (MVCC Store)
+            </div>
+
+            <div class="log-entries">
+                <div class="log-entry log-entry-committed">
+                    <div class="log-term">Term: 1</div>
+                    <div class="log-command">PUT x=1</div>
+                    <div class="log-index">Index: 1</div>
+                </div>
+                <div class="log-entry log-entry-committed">
+                    <div class="log-term">Term: 1</div>
+                    <div class="log-command">PUT y=2</div>
+                    <div class="log-index">Index: 2</div>
+                </div>
+                <div class="log-entry log-entry-committed">
+                    <div class="log-term">Term: 2</div>
+                    <div class="log-command">DELETE x</div>
+                    <div class="log-index">Index: 3</div>
+                </div>
+                <div class="log-entry log-entry-pending">
+                    <div class="log-term">Term: 2</div>
+                    <div class="log-command">PUT z=3</div>
+                    <div class="log-index">Index: 4</div>
+                </div>
+            </div>
+
+            <div class="code-block">
+<span class="code-comment">// RaftCore.java - Simplified leader election</span>
+<span class="code-keyword">private synchronized void</span> startElection() {
+    currentTerm++;
+    state.set(RaftState.CANDIDATE);
+    votedFor = nodeId;
+
+    <span class="code-comment">// Request votes from all peers</span>
+    <span class="code-keyword">for</span> (String peer : peers) {
+        VoteRequest request = <span class="code-keyword">new</span> VoteRequest(currentTerm, nodeId);
+        VoteResponse response = rpcHandler.sendVoteRequest(peer, request);
+
+        <span class="code-keyword">if</span> (votes >= majority) {
+            becomeLeader();
+        }
+    }
+}
+            </div>
+        </section>
+
+        <!-- MVCC Storage -->
+        <section class="section">
+            <h2>🔄 Multi-Version Concurrency Control (MVCC)</h2>
+            <p>Allows concurrent reads and writes without locking.</p>
+
+            <h3>Version Timeline</h3>
+            <div class="mvcc-timeline">
+                <div class="version-line">
+                    <div class="version-number">V1</div>
+                    <div class="version-content">
+                        <span class="version-key">balance:</span>
+                        <span class="version-value">1000</span>
+                        <span class="version-timestamp">10:00:00</span>
+                    </div>
+                </div>
+
+                <div class="version-line">
+                    <div class="version-number">V2</div>
+                    <div class="version-content">
+                        <span class="version-key">balance:</span>
+                        <span class="version-value">1500</span>
+                        <span class="version-timestamp">10:00:15</span>
+                    </div>
+                </div>
+
+                <div class="version-line">
+                    <div class="version-number">V3</div>
+                    <div class="version-content">
+                        <span class="version-key">balance:</span>
+                        <span class="version-value">2000</span>
+                        <span class="version-timestamp">10:00:30</span>
+                    </div>
+                </div>
+
+                <div class="version-line">
+                    <div class="version-number">V4</div>
+                    <div class="version-content">
+                        <span class="version-key">balance:</span>
+                        <span class="version-value">1800</span>
+                        <span class="version-timestamp">10:00:45</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="code-block">
+<span class="code-comment">// MVCCStore.java - Core versioning logic</span>
+<span class="code-keyword">public</span> String getAtVersion(String key, <span class="code-keyword">long</span> version) {
+    List&lt;VersionedValue&gt; versions = store.get(key);
+
+    <span class="code-comment">// Find the latest version <= requested version</span>
+    VersionedValue result = <span class="code-keyword">null</span>;
+    <span class="code-keyword">for</span> (VersionedValue v : versions) {
+        <span class="code-keyword">if</span> (v.getVersion() <= version) {
+            result = v;
+        } <span class="code-keyword">else</span> {
+            <span class="code-keyword">break</span>;
+        }
+    }
+
+    <span class="code-keyword">return</span> result != <span class="code-keyword">null</span> ? result.getValue() : <span class="code-keyword">null</span>;
+}
+            </div>
+        </section>
+
+        <!-- Transaction Isolation -->
+        <section class="section">
+            <h2>🔒 Transaction Snapshot Isolation</h2>
+            <p>Transactions see a consistent snapshot of data from when they started.</p>
+
+            <div class="transaction-demo">
+                <div class="tx-timeline">
+                    <div class="tx-title">Transaction 1 (TX_ID: 42)</div>
+
+                    <div class="tx-step tx-snapshot">
+                        <strong>BEGIN</strong> - Snapshot at Version 3
+                    </div>
+
+                    <div class="tx-step tx-read">
+                        <strong>READ balance</strong> → 2000 (V3)
+                    </div>
+
+                    <div class="tx-step tx-read">
+                        <strong>READ account</strong> → "Alice" (V3)
+                    </div>
+
+                    <div class="tx-step tx-read">
+                        <strong>READ balance</strong> → 2000 (still V3!)
+                        <br><small>Even though V4 exists now</small>
+                    </div>
+
+                    <div class="tx-step tx-snapshot">
+                        <strong>COMMIT</strong>
+                    </div>
+                </div>
+
+                <div class="tx-timeline">
+                    <div class="tx-title">Outside Transaction (Real-time)</div>
+
+                    <div class="tx-step">
+                        <strong>Time passes...</strong>
+                    </div>
+
+                    <div class="tx-step tx-write">
+                        <strong>WRITE balance</strong> = 1800 (creates V4)
+                    </div>
+
+                    <div class="tx-step tx-write">
+                        <strong>WRITE account</strong> = "Bob" (creates V5)
+                    </div>
+
+                    <div class="tx-step tx-read">
+                        <strong>READ balance</strong> → 1800 (V4)
+                    </div>
+
+                    <div class="tx-step">
+                        Changes visible immediately
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-box">
+                <div class="info-box-title">Key Benefits:</div>
+                • Readers never block writers<br>
+                • Writers never block readers<br>
+                • Each transaction sees consistent data<br>
+                • No locks needed!
+            </div>
+
+            <div class="code-block">
+<span class="code-comment">// Transaction usage example</span>
+<span class="code-keyword">long</span> txId = mvccStore.beginTransaction();  <span class="code-comment">// Captures current version</span>
+
+<span class="code-comment">// All reads in transaction see same version</span>
+String value1 = mvccStore.getInTransaction(txId, <span class="code-string">"balance"</span>);
+Thread.sleep(<span class="code-number">1000</span>);  <span class="code-comment">// Even if time passes...</span>
+String value2 = mvccStore.getInTransaction(txId, <span class="code-string">"balance"</span>);
+
+assert value1.equals(value2);  <span class="code-comment">// Always true! (Snapshot isolation)</span>
+
+mvccStore.commitTransaction(txId);
+            </div>
+        </section>
+
+        <!-- RPC Communication -->
+        <section class="section">
+            <h2>📡 Network Communication (Netty RPC)</h2>
+            <p>How nodes communicate with each other and with clients.</p>
+
+            <h3>Client to Leader Flow</h3>
+            <div class="rpc-flow">
+                <div class="rpc-entity">
+                    <strong>Client</strong><br>
+                    NetworkKVClient<br>
+                    Port: random
+                </div>
+
+                <div class="rpc-arrow">
+                    <span class="rpc-label">PUT request</span>
+                </div>
+
+                <div class="rpc-entity">
+                    <strong>Node 2</strong><br>
+                    (Follower)<br>
+                    Port: 5002
+                </div>
+
+                <div class="rpc-arrow" style="left: 350px;">
+                    <span class="rpc-label">NOT_LEADER:node1</span>
+                </div>
+
+                <div class="rpc-entity">
+                    <strong>Node 1</strong><br>
+                    (Leader)<br>
+                    Port: 5001
+                </div>
+
+                <div class="rpc-arrow" style="left: 550px;">
+                    <span class="rpc-label">OK</span>
+                </div>
+
+                <div class="rpc-entity">
+                    <strong>Client</strong><br>
+                    Result: Success
+                </div>
+            </div>
+
+            <h3>Leader to Follower Replication</h3>
+            <div class="rpc-flow">
+                <div class="rpc-entity">
+                    <strong>Leader</strong><br>
+                    Node 1<br>
+                    Has new entry
+                </div>
+
+                <div class="rpc-arrow">
+                    <span class="rpc-label">AppendEntries RPC</span>
+                </div>
+
+                <div class="rpc-entity">
+                    <strong>Follower</strong><br>
+                    Node 2<br>
+                    Appends to log
+                </div>
+
+                <div class="rpc-arrow" style="left: 350px; transform: rotate(180deg);">
+                    <span class="rpc-label" style="top: 35px;">Success: true</span>
+                </div>
+
+                <div class="rpc-entity">
+                    <strong>Leader</strong><br>
+                    Updates matchIndex<br>
+                    Commits if majority
+                </div>
+            </div>
+
+            <div class="code-block">
+<span class="code-comment">// NettyRpcServer.java - Handling client requests</span>
+<span class="code-keyword">switch</span> (type) {
+    <span class="code-keyword">case</span> <span class="code-string">"PUT"</span>:
+        <span class="code-keyword">if</span> (raftNode.isLeader()) {
+            response = raftNode.put(key, value).get();
+        } <span class="code-keyword">else</span> {
+            response = <span class="code-string">"NOT_LEADER:"</span> + raftNode.getCurrentLeader();
+        }
+        <span class="code-keyword">break</span>;
+
+    <span class="code-keyword">case</span> <span class="code-string">"GET"</span>:
+        <span class="code-comment">// Can read from any node (MVCC)</span>
+        response = raftNode.get(key);
+        <span class="code-keyword">break</span>;
+}
+            </div>
+        </section>
+
+        <!-- How It All Works Together -->
+        <section class="section">
+            <h2>🎯 Putting It All Together</h2>
+            <p>How Consensus, Consistency, and Concurrency work in harmony.</p>
+
+            <div class="info-box">
+                <div class="info-box-title">The Complete Flow:</div>
+                1. <strong>Client writes</strong> → Goes to Leader (via NetworkKVClient)<br>
+                2. <strong>Leader uses Raft</strong> → Replicates to majority of nodes<br>
+                3. <strong>Once committed</strong> → Applied to MVCC store (new version created)<br>
+                4. <strong>Client reads</strong> → Can go to any node (MVCC provides consistency)<br>
+                5. <strong>Transactions</strong> → See snapshot from when they started (isolation)
+            </div>
+
+            <h3>Live Commands to Try</h3>
+            <div class="code-block">
+<span class="code-comment"># Start the cluster (3 terminals)</span>
+./gradlew run --args="node1 5001 node2:5002 node3:5003"
+./gradlew run --args="node2 5002 node1:5001 node3:5003"
+./gradlew run --args="node3 5003 node1:5001 node2:5002"
+
+<span class="code-comment"># Connect client (4th terminal)</span>
+./gradlew runClient
+
+<span class="code-comment"># Try these commands</span>
+> put account 1000       <span class="code-comment"># Write through Raft consensus</span>
+> get account            <span class="code-comment"># Read from MVCC (any node)</span>
+> begin                  <span class="code-comment"># Start transaction (snapshot)</span>
+> tget account           <span class="code-comment"># Read in transaction</span>
+> put account 2000       <span class="code-comment"># Modify outside transaction</span>
+> tget account           <span class="code-comment"># Still sees 1000! (isolation)</span>
+> commit                 <span class="code-comment"># End transaction</span>
+> txdemo                 <span class="code-comment"># Run full demo</span>
+            </div>
+
+            <h3>System Properties</h3>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 30px;">
+                <div class="info-box">
+                    <div class="info-box-title">Consensus (Raft)</div>
+                    • One leader per term<br>
+                    • Majority agreement<br>
+                    • Log consistency<br>
+                    • Automatic failover
+                </div>
+
+                <div class="info-box">
+                    <div class="info-box-title">Consistency</div>
+                    • Replicated state<br>
+                    • Sequential operations<br>
+                    • Linearizable writes<br>
+                    • Eventually consistent
+                </div>
+
+                <div class="info-box">
+                    <div class="info-box-title">Concurrency (MVCC)</div>
+                    • Lock-free reads<br>
+                    • Snapshot isolation<br>
+                    • Version history<br>
+                    • No reader/writer blocking
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <section class="section" style="text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+            <h2 style="color: white;">🚀 Mini Raft-KV Store</h2>
+            <p>A complete distributed key-value store implementation</p>
+            <p style="margin-top: 20px; opacity: 0.9;">
+                Built with Java • Netty • Gradle<br>
+                Implements Raft Consensus + MVCC Storage
+            </p>
+        </section>
+    </div>
+
+    <script>
+        // Simulate leader election
+        function simulateElection() {
+            const nodes = document.querySelectorAll('.node');
+
+            // All become candidates
+            nodes.forEach(node => {
+                node.className = 'node node-candidate';
+                node.querySelector('.node-state').innerHTML = '<span class="status-indicator status-yellow"></span>CANDIDATE';
+            });
+
+            // After delay, elect a leader
+            setTimeout(() => {
+                const leaderIndex = Math.floor(Math.random() * 3);
+                nodes.forEach((node, index) => {
+                    if (index === leaderIndex) {
+                        node.className = 'node node-leader';
+                        node.querySelector('.node-state').innerHTML = '<span class="status-indicator status-green"></span>LEADER';
+                    } else {
+                        node.className = 'node node-follower';
+                        node.querySelector('.node-state').innerHTML = '<span class="status-indicator status-green"></span>FOLLOWER';
+                    }
+                });
+            }, 2000);
+        }
+
+        // Simulate node failure
+        function simulateFailure() {
+            const leader = document.querySelector('.node-leader');
+            if (leader) {
+                leader.style.opacity = '0.3';
+                leader.querySelector('.node-state').innerHTML = '<span class="status-indicator status-red"></span>FAILED';
+
+                // Trigger new election after delay
+                setTimeout(simulateElection, 1500);
+            }
+        }
+
+        // Reset cluster state
+        function resetRaft() {
+            const nodes = document.querySelectorAll('.node');
+            nodes[0].className = 'node node-leader';
+            nodes[0].querySelector('.node-state').innerHTML = '<span class="status-indicator status-green"></span>LEADER';
+            nodes[0].style.opacity = '1';
+
+            for (let i = 1; i < nodes.length; i++) {
+                nodes[i].className = 'node node-follower';
+                nodes[i].querySelector('.node-state').innerHTML = '<span class="status-indicator status-green"></span>FOLLOWER';
+                nodes[i].style.opacity = '1';
+            }
+        }
+
+        // Add some animation on load
+        window.addEventListener('load', () => {
+            const elements = document.querySelectorAll('.section');
+            elements.forEach((el, index) => {
+                el.style.opacity = '0';
+                el.style.transform = 'translateY(20px)';
+
+                setTimeout(() => {
+                    el.style.transition = 'all 0.5s ease';
+                    el.style.opacity = '1';
+                    el.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+    </script>
+</body>
+</html>

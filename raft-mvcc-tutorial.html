@@ -1,0 +1,1512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Understanding Raft Consensus & MVCC: A Feynman-Style Journey</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #2c3e50;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 60px 0;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+
+        header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 200%;
+            height: 100%;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23ffffff10" fill-opacity="1" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,138.7C672,149,768,203,864,213.3C960,224,1056,192,1152,165.3C1248,139,1344,117,1392,106.7L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path></svg>') no-repeat center;
+            animation: wave 20s linear infinite;
+            z-index: -1;
+        }
+
+        @keyframes wave {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(50%); }
+        }
+
+        h1 {
+            font-size: 3.5em;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from { text-shadow: 0 0 10px #fff, 0 0 20px #fff, 0 0 30px #667eea; }
+            to { text-shadow: 0 0 20px #fff, 0 0 30px #764ba2, 0 0 40px #764ba2; }
+        }
+
+        .subtitle {
+            font-size: 1.4em;
+            opacity: 0.95;
+            margin-bottom: 10px;
+        }
+
+        .content-section {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        h2 {
+            color: #667eea;
+            font-size: 2.2em;
+            margin-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+            position: relative;
+        }
+
+        h2::after {
+            content: '';
+            position: absolute;
+            bottom: -3px;
+            left: 0;
+            width: 100px;
+            height: 3px;
+            background: linear-gradient(90deg, #764ba2, transparent);
+        }
+
+        h3 {
+            color: #764ba2;
+            font-size: 1.5em;
+            margin: 30px 0 15px;
+        }
+
+        .feynman-box {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-left: 5px solid #667eea;
+            padding: 25px;
+            margin: 30px 0;
+            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feynman-box::before {
+            content: '💡';
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 2em;
+            opacity: 0.3;
+        }
+
+        .feynman-box h4 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .animation-container {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            margin: 30px 0;
+            text-align: center;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .node-diagram {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+
+        .node {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            position: relative;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin: 10px;
+        }
+
+        .node:hover {
+            transform: scale(1.1);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .leader {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            box-shadow: 0 0 30px rgba(102, 126, 234, 0.5);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.7); }
+            70% { box-shadow: 0 0 0 20px rgba(102, 126, 234, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0); }
+        }
+
+        .follower {
+            background: linear-gradient(135deg, #84fab0, #8fd3f4);
+        }
+
+        .candidate {
+            background: linear-gradient(135deg, #fa709a, #fee140);
+            animation: rotate 4s linear infinite;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .node-label {
+            font-size: 1.2em;
+            margin-bottom: 5px;
+        }
+
+        .node-state {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .arrow {
+            position: absolute;
+            width: 100px;
+            height: 2px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transform-origin: left center;
+        }
+
+        .arrow::after {
+            content: '';
+            position: absolute;
+            right: -10px;
+            top: -4px;
+            width: 0;
+            height: 0;
+            border-left: 10px solid #764ba2;
+            border-top: 5px solid transparent;
+            border-bottom: 5px solid transparent;
+        }
+
+        pre {
+            border-radius: 10px;
+            padding: 20px !important;
+            margin: 20px 0;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            overflow-x: auto;
+            background: #2d2d2d !important;
+        }
+
+        code {
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.95em;
+        }
+
+        .inline-code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #e83e8c;
+            font-family: 'Fira Code', monospace;
+        }
+
+        .timeline {
+            position: relative;
+            padding: 20px 0;
+            margin: 40px 0;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(180deg, #667eea, #764ba2);
+        }
+
+        .timeline-item {
+            position: relative;
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+        }
+
+        .timeline-item:nth-child(odd) {
+            justify-content: flex-start;
+            text-align: right;
+        }
+
+        .timeline-item:nth-child(even) {
+            justify-content: flex-end;
+            text-align: left;
+        }
+
+        .timeline-content {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            width: 45%;
+            position: relative;
+        }
+
+        .timeline-dot {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #667eea;
+            border-radius: 50%;
+            left: calc(50% - 10px);
+            box-shadow: 0 0 0 5px rgba(102, 126, 234, 0.2);
+        }
+
+        .mvcc-version-box {
+            background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px;
+            display: inline-block;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .mvcc-version-box:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+
+        .version-number {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .interactive-demo {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            margin: 30px 0;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .concept-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin: 20px 0;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border-top: 5px solid #667eea;
+            transition: all 0.3s ease;
+        }
+
+        .concept-card:hover {
+            transform: translateX(10px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.15);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            color: #666;
+            font-size: 1.1em;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .tab.active {
+            color: #667eea;
+        }
+
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 30px 0;
+            position: relative;
+        }
+
+        .flow-step {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            flex: 1;
+            margin: 0 10px;
+            text-align: center;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .flow-step:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+        }
+
+        .flow-arrow {
+            position: absolute;
+            right: -20px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 0;
+            height: 0;
+            border-left: 20px solid #764ba2;
+            border-top: 15px solid transparent;
+            border-bottom: 15px solid transparent;
+            z-index: 1;
+        }
+
+        .highlight-box {
+            background: linear-gradient(135deg, #fff6e5, #ffe4b5);
+            border: 2px dashed #ffa500;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+            position: relative;
+        }
+
+        .highlight-box::before {
+            content: '⚠️';
+            position: absolute;
+            top: -15px;
+            left: 20px;
+            background: white;
+            padding: 0 10px;
+            font-size: 1.5em;
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 2em; }
+            .node { width: 100px; height: 100px; }
+            .timeline-content { width: 90%; }
+            .flow-diagram { flex-direction: column; }
+            .flow-arrow { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>🚀 The Raft & MVCC Journey</h1>
+            <p class="subtitle">Understanding Distributed Consensus & Concurrency Control</p>
+            <p style="opacity: 0.9;">Through Simple Analogies & Interactive Examples by Chiradip Mandal</p>
+            <p style="opacity: 0.8; font-style: italic;">Part of Designing Ultra-Large Scale Systems</p>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Introduction -->
+        <div class="content-section">
+            <h2>📖 The Story Begins: Why We Need Raft & MVCC</h2>
+
+            <div class="feynman-box">
+                <h4>Imagine a Library with Multiple Librarians</h4>
+                <p>You have a library with 5 librarians. Each has their own copy of the catalog. When someone returns a book, how do all librarians agree which copy to update? What if two people want to check out the same book at the same time?</p>
+                <p style="margin-top: 15px;"><strong>This is exactly the problem Raft and MVCC solve!</strong></p>
+                <ul style="margin-top: 15px;">
+                    <li><strong>Raft</strong> = How librarians agree on updates (consensus)</li>
+                    <li><strong>MVCC</strong> = How multiple people can read the catalog without waiting (concurrency)</li>
+                </ul>
+            </div>
+
+            <div class="animation-container">
+                <h3>The Distributed System Challenge</h3>
+                <div class="node-diagram">
+                    <div class="node follower">
+                        <div class="node-label">Node 1</div>
+                        <div class="node-state">Has Data</div>
+                    </div>
+                    <div class="node follower">
+                        <div class="node-label">Node 2</div>
+                        <div class="node-state">Has Data</div>
+                    </div>
+                    <div class="node follower">
+                        <div class="node-label">Node 3</div>
+                        <div class="node-state">Has Data</div>
+                    </div>
+                </div>
+                <p style="margin-top: 20px;">Three nodes, each with data. How do they stay synchronized?</p>
+            </div>
+        </div>
+
+        <!-- Part 1: Raft Consensus -->
+        <div class="content-section">
+            <h2>🗳️ Part 1: Raft Consensus Algorithm</h2>
+
+            <p>Raft is like organizing a group of friends to make decisions. One becomes the leader, others follow. If the leader disappears, they elect a new one!</p>
+
+            <h3>The Three States of a Raft Node</h3>
+
+            <div class="node-diagram">
+                <div class="node follower" onclick="showState('follower')">
+                    <div class="node-label">Follower</div>
+                    <div class="node-state">Receives orders</div>
+                </div>
+                <div class="node candidate" onclick="showState('candidate')">
+                    <div class="node-label">Candidate</div>
+                    <div class="node-state">Wants to lead</div>
+                </div>
+                <div class="node leader" onclick="showState('leader')">
+                    <div class="node-label">Leader</div>
+                    <div class="node-state">Gives orders</div>
+                </div>
+            </div>
+
+            <div class="concept-card">
+                <h4>🎯 Core Raft Principle</h4>
+                <p>At any moment, a Raft cluster has:</p>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li>At most ONE leader (the decision maker)</li>
+                    <li>Zero or more candidates (want to be leader)</li>
+                    <li>Zero or more followers (accept leader's decisions)</li>
+                </ul>
+            </div>
+
+            <h3>Leader Election: The Democratic Process</h3>
+
+            <div class="timeline">
+                <div class="timeline-item">
+                    <div class="timeline-content">
+                        <h4>Step 1: Timeout</h4>
+                        <p>A follower doesn't hear from leader for ~150-300ms</p>
+                    </div>
+                    <div class="timeline-dot"></div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-content">
+                        <h4>Step 2: Become Candidate</h4>
+                        <p>Node votes for itself and asks others for votes</p>
+                    </div>
+                    <div class="timeline-dot"></div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-content">
+                        <h4>Step 3: Collect Votes</h4>
+                        <p>Needs majority (3 out of 5, 2 out of 3)</p>
+                    </div>
+                    <div class="timeline-dot"></div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-content">
+                        <h4>Step 4: Become Leader</h4>
+                        <p>Wins election, sends heartbeats to maintain leadership</p>
+                    </div>
+                    <div class="timeline-dot"></div>
+                </div>
+            </div>
+
+            <h3>Let's Look at the Code!</h3>
+
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('election-trigger')">Election Trigger</button>
+                <button class="tab" onclick="showTab('vote-request')">Vote Request</button>
+                <button class="tab" onclick="showTab('become-leader')">Become Leader</button>
+            </div>
+
+            <div id="election-trigger" class="tab-content active">
+                <p>When a follower times out, it starts an election:</p>
+                <pre><code class="language-java">// From RaftCore.java - Starting an election
+private synchronized void startElection() {
+    // Increment term number (like election round)
+    currentTerm++;
+
+    // Change state to candidate
+    state.set(RaftState.CANDIDATE);
+
+    // Vote for self
+    votedFor = nodeId;
+
+    logger.info("{}: Starting election for term {}", nodeId, currentTerm);
+
+    // Request votes from all other nodes
+    for (String peer : peers) {
+        sendVoteRequest(peer);
+    }
+}</code></pre>
+                <div class="feynman-box">
+                    <h4>What's happening here?</h4>
+                    <p>Think of it like raising your hand in class:</p>
+                    <ol>
+                        <li><strong>currentTerm++</strong> = "This is election round #5!"</li>
+                        <li><strong>CANDIDATE state</strong> = "I want to be the leader!"</li>
+                        <li><strong>votedFor = nodeId</strong> = "I vote for myself first!"</li>
+                        <li><strong>sendVoteRequest</strong> = "Hey everyone, vote for me!"</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div id="vote-request" class="tab-content">
+                <p>How nodes decide whether to grant a vote:</p>
+                <pre><code class="language-java">// From RaftCore.java - Handling vote requests
+public synchronized VoteResponse requestVote(VoteRequest request) {
+    // Is their term newer? Update mine and become follower
+    if (request.term > currentTerm) {
+        currentTerm = request.term;
+        votedFor = null;
+        state.set(RaftState.FOLLOWER);
+    }
+
+    // Have I already voted for someone else this term?
+    if (votedFor != null && !votedFor.equals(request.candidateId)) {
+        return new VoteResponse(currentTerm, false); // Sorry, already voted!
+    }
+
+    // Is their log at least as up-to-date as mine?
+    boolean logIsUpToDate = request.lastLogTerm > lastLogTerm ||
+        (request.lastLogTerm == lastLogTerm &&
+         request.lastLogIndex >= lastLogIndex);
+
+    if (request.term >= currentTerm && logIsUpToDate) {
+        votedFor = request.candidateId;
+        logger.info("{}: Voted for {} in term {}",
+                   nodeId, request.candidateId, currentTerm);
+        return new VoteResponse(currentTerm, true); // Yes, you have my vote!
+    }
+
+    return new VoteResponse(currentTerm, false);
+}</code></pre>
+                <div class="feynman-box">
+                    <h4>The Voting Logic Explained</h4>
+                    <p>Nodes are picky voters! They only vote if:</p>
+                    <ul>
+                        <li>✅ Haven't voted for someone else this term (loyal!)</li>
+                        <li>✅ Candidate's term is current or newer (no old news!)</li>
+                        <li>✅ Candidate's log is up-to-date (must be informed!)</li>
+                    </ul>
+                    <p style="margin-top: 10px;">This prevents multiple leaders and ensures the new leader has all committed data!</p>
+                </div>
+            </div>
+
+            <div id="become-leader" class="tab-content">
+                <p>After winning the election:</p>
+                <pre><code class="language-java">// From RaftCore.java - Becoming the leader
+private synchronized void becomeLeader() {
+    logger.info("{}: Became leader for term {}", nodeId, currentTerm);
+    state.set(RaftState.LEADER);
+    currentLeader = nodeId;
+
+    // Initialize leader state for each follower
+    for (String peer : peers) {
+        nextIndex.put(peer, log.size());  // Where to send next
+        matchIndex.put(peer, 0);           // What they've confirmed
+    }
+
+    // Start sending heartbeats to maintain leadership
+    scheduler.scheduleAtFixedRate(
+        this::sendHeartbeats,
+        0,
+        HEARTBEAT_INTERVAL,  // Every 50ms
+        TimeUnit.MILLISECONDS
+    );
+}</code></pre>
+                <div class="feynman-box">
+                    <h4>The Leader's Responsibilities</h4>
+                    <p>Becoming leader is like becoming class president:</p>
+                    <ol>
+                        <li><strong>Track followers</strong>: Know what each follower has</li>
+                        <li><strong>Send heartbeats</strong>: "I'm still here!" every 50ms</li>
+                        <li><strong>Handle all writes</strong>: All changes go through the leader</li>
+                    </ol>
+                    <p style="margin-top: 10px;">If leader stops heartbeats, followers will start new election!</p>
+                </div>
+            </div>
+
+            <h3>Log Replication: Keeping Everyone in Sync</h3>
+
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    Client Write
+                    <div class="flow-arrow"></div>
+                </div>
+                <div class="flow-step">
+                    Leader's Log
+                    <div class="flow-arrow"></div>
+                </div>
+                <div class="flow-step">
+                    Replicate to Followers
+                    <div class="flow-arrow"></div>
+                </div>
+                <div class="flow-step">
+                    Majority Confirms
+                    <div class="flow-arrow"></div>
+                </div>
+                <div class="flow-step">
+                    Commit & Apply
+                </div>
+            </div>
+
+            <pre><code class="language-java">// From RaftCore.java - Submitting a command
+public synchronized CompletableFuture<Boolean> submitCommand(Command command) {
+    if (state.get() != RaftState.LEADER) {
+        return CompletableFuture.completedFuture(false);
+    }
+
+    // Step 1: Append to local log
+    LogEntry entry = new LogEntry(currentTerm, command, log.size());
+    log.add(entry);
+
+    // Step 2: Replicate to followers
+    sendHeartbeats(); // Contains new entries
+
+    return CompletableFuture.completedFuture(true);
+}
+
+// From RaftCore.java - Sending entries to followers
+private void sendAppendEntries(String peer) {
+    int nextIdx = nextIndex.get(peer);
+    List<LogEntry> entries = new ArrayList<>(
+        log.subList(nextIdx, log.size())
+    );
+
+    AppendEntriesRequest request = new AppendEntriesRequest(
+        currentTerm,
+        nodeId,
+        prevLogIndex,
+        prevLogTerm,
+        entries,
+        commitIndex
+    );
+
+    // Send to follower
+    AppendEntriesResponse response = rpcHandler.sendAppendEntries(peer, request);
+
+    if (response.success) {
+        // Update what we know about this follower
+        nextIndex.put(peer, log.size());
+        matchIndex.put(peer, log.size() - 1);
+
+        // Check if we can commit
+        updateCommitIndex();
+    }
+}</code></pre>
+
+            <div class="highlight-box">
+                <h4>Key Safety Property</h4>
+                <p>A log entry is only committed when:</p>
+                <ul style="margin-left: 20px;">
+                    <li>✅ It's stored on a majority of servers</li>
+                    <li>✅ The leader that created it is still leader</li>
+                    <li>✅ It's from the current term</li>
+                </ul>
+                <p style="margin-top: 10px;">This ensures <strong>once committed, never lost!</strong></p>
+            </div>
+        </div>
+
+        <!-- Part 2: MVCC -->
+        <div class="content-section">
+            <h2>🔄 Part 2: Multi-Version Concurrency Control (MVCC)</h2>
+
+            <div class="feynman-box">
+                <h4>The Time Machine Analogy</h4>
+                <p>Imagine if instead of erasing and rewriting history, you just added new chapters. Anyone reading can choose which chapter (version) to read. That's MVCC!</p>
+                <p style="margin-top: 15px;">Instead of locking data when someone writes, we create a new version. Readers can read old versions while writers create new ones!</p>
+            </div>
+
+            <h3>How MVCC Works in Our System</h3>
+
+            <div class="animation-container">
+                <h4>Version History for Key "balance"</h4>
+                <div style="display: flex; justify-content: center; flex-wrap: wrap;">
+                    <div class="mvcc-version-box">
+                        <div class="version-number">1</div>
+                        <strong>balance = 100</strong><br>
+                        <small>Time: 1000</small>
+                    </div>
+                    <div class="mvcc-version-box">
+                        <div class="version-number">2</div>
+                        <strong>balance = 150</strong><br>
+                        <small>Time: 2000</small>
+                    </div>
+                    <div class="mvcc-version-box">
+                        <div class="version-number">3</div>
+                        <strong>balance = 200</strong><br>
+                        <small>Time: 3000</small>
+                    </div>
+                    <div class="mvcc-version-box" style="opacity: 0.5;">
+                        <div class="version-number">4</div>
+                        <strong>balance = 175</strong><br>
+                        <small>Time: 4000</small>
+                    </div>
+                </div>
+                <p style="margin-top: 20px;">Each write creates a new version. Old versions remain accessible!</p>
+            </div>
+
+            <h3>The MVCC Store Implementation</h3>
+
+            <pre><code class="language-java">// From MVCCStore.java - Core data structure
+public class MVCCStore {
+    // Key -> List of all versions for that key
+    private final Map<String, List<VersionedValue>> store;
+
+    // Global version counter (our "time machine clock")
+    private final AtomicLong versionCounter;
+
+    // Active transactions and their snapshot versions
+    private final Map<Long, Long> transactions;
+}</code></pre>
+
+            <div class="concept-card">
+                <h4>🎯 The Genius of MVCC</h4>
+                <p>Three key ideas make MVCC powerful:</p>
+                <ol style="margin-left: 20px;">
+                    <li><strong>Never overwrite</strong>: Always create new versions</li>
+                    <li><strong>Version numbers</strong>: Each write gets a unique timestamp</li>
+                    <li><strong>Snapshot isolation</strong>: Transactions see a consistent point in time</li>
+                </ol>
+            </div>
+
+            <h3>MVCC Operations</h3>
+
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('mvcc-write')">Write Operation</button>
+                <button class="tab" onclick="showTab('mvcc-read')">Read Operation</button>
+                <button class="tab" onclick="showTab('mvcc-transaction')">Transaction</button>
+            </div>
+
+            <div id="mvcc-write" class="tab-content active">
+                <p>Creating a new version when writing:</p>
+                <pre><code class="language-java">// From MVCCStore.java - Writing a new version
+public long put(String key, String value) {
+    // Get next version number (like timestamp)
+    long version = versionCounter.incrementAndGet();
+
+    // Create versioned value
+    VersionedValue versionedValue = new VersionedValue(version, value, false);
+
+    // Add to version history
+    store.compute(key, (k, versions) -> {
+        if (versions == null) {
+            versions = new ArrayList<>();
+        }
+        versions.add(versionedValue);
+
+        // Keep last 10 versions (configurable)
+        if (versions.size() > MAX_VERSIONS) {
+            versions.remove(0);
+        }
+
+        return versions;
+    });
+
+    logger.debug("Created version {} for key '{}' with value '{}'",
+                version, key, value);
+    return version;
+}</code></pre>
+                <div class="feynman-box">
+                    <h4>What's Happening?</h4>
+                    <p>Think of it like taking a photo instead of editing:</p>
+                    <ol>
+                        <li><strong>Get version number</strong>: Like timestamp on photo</li>
+                        <li><strong>Create new version</strong>: Take new photo with changes</li>
+                        <li><strong>Add to history</strong>: Put in photo album</li>
+                        <li><strong>Keep recent versions</strong>: Don't fill up the album!</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div id="mvcc-read" class="tab-content">
+                <p>Reading at different versions:</p>
+                <pre><code class="language-java">// From MVCCStore.java - Reading latest version
+public String get(String key) {
+    List<VersionedValue> versions = store.get(key);
+    if (versions == null || versions.isEmpty()) {
+        return null;
+    }
+
+    // Find latest non-deleted version
+    for (int i = versions.size() - 1; i >= 0; i--) {
+        VersionedValue value = versions.get(i);
+        if (!value.isDeleted()) {
+            return value.getValue();
+        }
+    }
+    return null;
+}
+
+// Reading at specific version (time travel!)
+public String getAtVersion(String key, long version) {
+    List<VersionedValue> versions = store.get(key);
+    if (versions == null) {
+        return null;
+    }
+
+    // Find the value at or before requested version
+    VersionedValue result = null;
+    for (VersionedValue v : versions) {
+        if (v.getVersion() <= version && !v.isDeleted()) {
+            result = v;  // Keep updating until we pass the version
+        } else if (v.getVersion() > version) {
+            break;  // We've gone too far
+        }
+    }
+
+    return result != null ? result.getValue() : null;
+}</code></pre>
+                <div class="feynman-box">
+                    <h4>Time Travel Reading!</h4>
+                    <p>MVCC lets us read at any point in history:</p>
+                    <ul>
+                        <li><strong>get(key)</strong>: Show me the latest photo</li>
+                        <li><strong>getAtVersion(key, 5)</strong>: Show me how it looked at time 5</li>
+                    </ul>
+                    <p style="margin-top: 10px;">This is why readers never block writers - they're looking at different photos!</p>
+                </div>
+            </div>
+
+            <div id="mvcc-transaction" class="tab-content">
+                <p>Snapshot isolation with transactions:</p>
+                <pre><code class="language-java">// From MVCCStore.java - Transaction management
+public long beginTransaction() {
+    long txId = System.nanoTime();  // Unique transaction ID
+    long snapshotVersion = versionCounter.get();  // Current version
+
+    transactions.put(txId, snapshotVersion);
+    logger.debug("Transaction {} started with snapshot version {}",
+                txId, snapshotVersion);
+    return txId;
+}
+
+public String getInTransaction(long txId, String key) {
+    Long snapshotVersion = transactions.get(txId);
+    if (snapshotVersion == null) {
+        throw new IllegalStateException("Transaction not found: " + txId);
+    }
+
+    // Read at the snapshot version
+    return getAtVersion(key, snapshotVersion);
+}
+
+public void commitTransaction(long txId) {
+    transactions.remove(txId);
+    logger.debug("Transaction {} committed", txId);
+}</code></pre>
+                <div class="highlight-box">
+                    <h4>Snapshot Isolation Magic</h4>
+                    <p>When you start a transaction:</p>
+                    <ol style="margin-left: 20px;">
+                        <li>📸 Take a "snapshot" of the current version</li>
+                        <li>👀 All reads in transaction see this snapshot</li>
+                        <li>✨ Outside changes don't affect your view</li>
+                        <li>🎯 Consistent view of the entire database!</li>
+                    </ol>
+                </div>
+            </div>
+
+            <h3>MVCC in Action: A Live Example</h3>
+
+            <div class="interactive-demo">
+                <h4>Transaction Isolation Demo</h4>
+                <div class="timeline">
+                    <div class="timeline-item">
+                        <div class="timeline-content">
+                            <strong>T1: Initial State</strong><br>
+                            balance = 100 (version 1)
+                        </div>
+                        <div class="timeline-dot"></div>
+                    </div>
+                    <div class="timeline-item">
+                        <div class="timeline-content">
+                            <strong>T2: Start Transaction</strong><br>
+                            TX1 begins (snapshot at v1)
+                        </div>
+                        <div class="timeline-dot" style="background: #fa709a;"></div>
+                    </div>
+                    <div class="timeline-item">
+                        <div class="timeline-content">
+                            <strong>T3: External Write</strong><br>
+                            balance = 200 (version 2)
+                        </div>
+                        <div class="timeline-dot"></div>
+                    </div>
+                    <div class="timeline-item">
+                        <div class="timeline-content">
+                            <strong>T4: TX1 Reads</strong><br>
+                            Still sees balance = 100!
+                        </div>
+                        <div class="timeline-dot" style="background: #fa709a;"></div>
+                    </div>
+                    <div class="timeline-item">
+                        <div class="timeline-content">
+                            <strong>T5: Another Write</strong><br>
+                            balance = 300 (version 3)
+                        </div>
+                        <div class="timeline-dot"></div>
+                    </div>
+                    <div class="timeline-item">
+                        <div class="timeline-content">
+                            <strong>T6: TX1 Still Isolated</strong><br>
+                            STILL sees balance = 100!
+                        </div>
+                        <div class="timeline-dot" style="background: #fa709a;"></div>
+                    </div>
+                </div>
+                <p style="text-align: center; margin-top: 20px;">
+                    <strong>Result:</strong> Transaction sees consistent snapshot despite concurrent changes!
+                </p>
+            </div>
+        </div>
+
+        <!-- Part 3: Integration -->
+        <div class="content-section">
+            <h2>🔗 Part 3: Bringing It All Together</h2>
+
+            <p>Now let's see how Raft and MVCC work together in our system!</p>
+
+            <h3>The Complete Architecture</h3>
+
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    Client Request
+                    <div class="flow-arrow"></div>
+                </div>
+                <div class="flow-step">
+                    Raft Consensus
+                    <div class="flow-arrow"></div>
+                </div>
+                <div class="flow-step">
+                    Log Replication
+                    <div class="flow-arrow"></div>
+                </div>
+                <div class="flow-step">
+                    Apply to MVCC
+                    <div class="flow-arrow"></div>
+                </div>
+                <div class="flow-step">
+                    Client Response
+                </div>
+            </div>
+
+            <h3>The RaftNode Integration</h3>
+
+            <pre><code class="language-java">// From RaftNode.java - The integration point
+public class RaftNode {
+    private final StateMachine stateMachine;     // Generic interface
+    private final MVCCStateMachine mvccStateMachine; // MVCC implementation
+    private final RaftCore raftCore;             // Consensus engine
+
+    public RaftNode(String nodeId, int port, Map<String, String> peerAddresses) {
+        // Create MVCC state machine
+        this.mvccStateMachine = new MVCCStateMachine();
+        this.stateMachine = mvccStateMachine;
+
+        // Initialize Raft with callback to state machine
+        this.raftCore = new RaftCore(
+            nodeId,
+            new ArrayList<>(peerAddresses.keySet()),
+            this::applyCommand  // Method reference to callback
+        );
+    }
+
+    // Callback: When Raft commits, apply to MVCC
+    private void applyCommand(LogEntry.Command command) {
+        stateMachine.apply(command);
+
+        // Complete pending client requests
+        CompletableFuture<String> future = pendingRequests.remove(requestId);
+        if (future != null) {
+            future.complete("OK");
+        }
+    }
+}</code></pre>
+
+            <h3>Write Path: From Client to Storage</h3>
+
+            <pre><code class="language-java">// From RaftNode.java - Client write request
+public CompletableFuture<String> put(String key, String value) {
+    // Step 1: Check if we're the leader
+    if (raftCore.getState() != RaftState.LEADER) {
+        String leader = raftCore.getCurrentLeader();
+        return CompletableFuture.completedFuture("NOT_LEADER:" + leader);
+    }
+
+    // Step 2: Create command
+    LogEntry.Command command = LogEntry.Command.put(key, value);
+
+    // Step 3: Submit to Raft
+    CompletableFuture<Boolean> submitted = raftCore.submitCommand(command);
+
+    // Step 4: Wait for consensus
+    if (submitted.join()) {
+        CompletableFuture<String> result = new CompletableFuture<>();
+        pendingRequests.put(key + "_put", result);
+        return result;  // Will complete when applied to MVCC
+    }
+
+    return CompletableFuture.completedFuture("FAILED");
+}</code></pre>
+
+            <div class="feynman-box">
+                <h4>The Complete Flow</h4>
+                <p>Here's what happens when you write "name = Alice":</p>
+                <ol style="margin-left: 20px;">
+                    <li>📝 Client sends PUT request to any node</li>
+                    <li>🔄 If not leader, redirected to leader</li>
+                    <li>📋 Leader adds to its log</li>
+                    <li>📡 Leader replicates to followers</li>
+                    <li>✅ Majority acknowledges receipt</li>
+                    <li>💾 Leader commits and applies to MVCC</li>
+                    <li>📮 Followers apply to their MVCC</li>
+                    <li>✔️ Client gets confirmation</li>
+                </ol>
+            </div>
+
+            <h3>Read Path: Fast and Lock-Free</h3>
+
+            <pre><code class="language-java">// From RaftNode.java - Client read request
+public String get(String key) {
+    // Can read from any node - no consensus needed!
+    Object value = stateMachine.read(key);
+    return value != null ? value.toString() : null;
+}
+
+// Read at specific version
+public String getAtVersion(String key, long version) {
+    Object value = stateMachine.readAtVersion(key, version);
+    return value != null ? value.toString() : null;
+}
+
+// Transaction read
+public String getInTransaction(long txId, String key) {
+    Object value = stateMachine.readInTransaction(txId, key);
+    return value != null ? value.toString() : null;
+}</code></pre>
+
+            <div class="concept-card">
+                <h4>💡 Why Reads Don't Need Consensus</h4>
+                <p>Thanks to MVCC, reads are:</p>
+                <ul style="margin-left: 20px;">
+                    <li>✅ <strong>Local</strong>: Read from node's own MVCC store</li>
+                    <li>✅ <strong>Fast</strong>: No network round trips</li>
+                    <li>✅ <strong>Non-blocking</strong>: Don't interfere with writes</li>
+                    <li>✅ <strong>Consistent</strong>: See committed data only</li>
+                </ul>
+                <p style="margin-top: 10px;">This is why reads are ~100x faster than writes!</p>
+            </div>
+        </div>
+
+        <!-- Interactive Examples -->
+        <div class="content-section">
+            <h2>🎮 Interactive Examples</h2>
+
+            <h3>Example 1: Leader Election Visualization</h3>
+
+            <div class="interactive-demo">
+                <div class="node-diagram" id="election-demo">
+                    <div class="node follower" id="node1">
+                        <div class="node-label">Node 1</div>
+                        <div class="node-state">Follower</div>
+                    </div>
+                    <div class="node follower" id="node2">
+                        <div class="node-label">Node 2</div>
+                        <div class="node-state">Follower</div>
+                    </div>
+                    <div class="node follower" id="node3">
+                        <div class="node-label">Node 3</div>
+                        <div class="node-state">Follower</div>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button onclick="simulateElection()">Start Election</button>
+                    <button onclick="killLeader()">Kill Leader</button>
+                    <button onclick="resetNodes()">Reset</button>
+                </div>
+                <div id="election-log" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 10px; min-height: 100px;">
+                    <strong>Event Log:</strong><br>
+                    Cluster initialized with 3 nodes...
+                </div>
+            </div>
+
+            <h3>Example 2: MVCC Version History</h3>
+
+            <div class="interactive-demo">
+                <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                    <input type="text" id="mvcc-key" placeholder="Key" value="balance" style="padding: 10px; border-radius: 5px; border: 1px solid #ddd;">
+                    <input type="text" id="mvcc-value" placeholder="Value" style="padding: 10px; border-radius: 5px; border: 1px solid #ddd;">
+                    <button onclick="mvccWrite()">Write</button>
+                </div>
+                <div id="version-history" style="display: flex; flex-wrap: wrap; gap: 10px; min-height: 100px;">
+                    <!-- Versions will appear here -->
+                </div>
+                <div style="margin-top: 20px;">
+                    <strong>Read Operations:</strong>
+                    <div class="button-group">
+                        <button onclick="mvccReadLatest()">Read Latest</button>
+                        <button onclick="mvccReadVersion(1)">Read v1</button>
+                        <button onclick="mvccReadVersion(2)">Read v2</button>
+                        <button onclick="mvccStartTransaction()">Start Transaction</button>
+                    </div>
+                    <div id="mvcc-output" style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 10px;">
+                        Output will appear here...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Takeaways -->
+        <div class="content-section">
+            <h2>🎯 Key Takeaways</h2>
+
+            <div class="concept-card">
+                <h4>Raft Consensus Ensures:</h4>
+                <ul style="margin-left: 20px;">
+                    <li>✅ <strong>One Leader</strong>: Single point of coordination</li>
+                    <li>✅ <strong>Majority Agreement</strong>: Decisions are democratic</li>
+                    <li>✅ <strong>Ordered Log</strong>: Everyone agrees on sequence</li>
+                    <li>✅ <strong>Fault Tolerance</strong>: Survives node failures</li>
+                </ul>
+            </div>
+
+            <div class="concept-card">
+                <h4>MVCC Provides:</h4>
+                <ul style="margin-left: 20px;">
+                    <li>✅ <strong>No Locks</strong>: Readers and writers don't block</li>
+                    <li>✅ <strong>Time Travel</strong>: Read any version</li>
+                    <li>✅ <strong>Snapshot Isolation</strong>: Consistent transaction views</li>
+                    <li>✅ <strong>High Performance</strong>: Concurrent operations</li>
+                </ul>
+            </div>
+
+            <div class="concept-card">
+                <h4>Together They Create:</h4>
+                <ul style="margin-left: 20px;">
+                    <li>🚀 <strong>Distributed Database</strong>: Multiple nodes, one logical system</li>
+                    <li>🔒 <strong>Strong Consistency</strong>: All nodes agree on state</li>
+                    <li>⚡ <strong>High Performance</strong>: Fast reads, reliable writes</li>
+                    <li>🛡️ <strong>Fault Tolerance</strong>: System survives failures</li>
+                </ul>
+            </div>
+
+            <div class="highlight-box">
+                <h4>The Beautiful Symphony</h4>
+                <p>Raft handles the <strong>coordination</strong> (who's in charge, what's the order), while MVCC handles the <strong>execution</strong> (how to store, how to read). Together, they create a system that's both correct and fast!</p>
+                <p style="margin-top: 15px;">This is the foundation of modern distributed databases like CockroachDB, TiDB, and YugabyteDB!</p>
+            </div>
+        </div>
+
+        <!-- Try It Yourself -->
+        <div class="content-section">
+            <h2>🚀 Try It Yourself!</h2>
+
+            <div class="feynman-box">
+                <h4>Quick Start Commands</h4>
+                <pre style="background: #2d2d2d; color: #fff;"><code># Build the project
+./gradlew build
+
+# Start a 3-node cluster
+./gradlew runCluster
+
+# In another terminal, connect a client
+./gradlew runClient
+
+# Try these commands:
+> put name Alice
+> get name
+> put age 30
+> status
+> leader</code></pre>
+            </div>
+
+            <h3>Experiments to Try</h3>
+
+            <ol style="margin-left: 20px; line-height: 2;">
+                <li><strong>Test Leader Election:</strong> Kill the leader node and watch re-election</li>
+                <li><strong>Test MVCC Isolation:</strong> Start a transaction, modify data externally, verify isolation</li>
+                <li><strong>Test Scale:</strong> Run with 5, 7, or 9 nodes</li>
+                <li><strong>Test Performance:</strong> Measure read vs write latency</li>
+                <li><strong>Test Fault Tolerance:</strong> Kill minority of nodes, verify system continues</li>
+            </ol>
+
+            <div style="text-align: center; margin-top: 40px;">
+                <h3>🎉 Congratulations!</h3>
+                <p>You now understand how distributed consensus and MVCC work!</p>
+                <p style="margin-top: 10px;">These concepts power databases handling billions of transactions daily.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"></script>
+    <script>
+        // Tab switching
+        function showTab(tabId) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Node state display
+        function showState(state) {
+            alert(`${state.charAt(0).toUpperCase() + state.slice(1)} State:\n\n` +
+                (state === 'follower' ? 'Receives and acknowledges commands from leader. Votes in elections.' :
+                 state === 'candidate' ? 'Requests votes from other nodes. Becomes leader if gets majority.' :
+                 'Coordinates all writes. Sends heartbeats. Replicates log to followers.'));
+        }
+
+        // Election simulation
+        let electionTimer;
+        let currentLeader = null;
+
+        function simulateElection() {
+            const log = document.getElementById('election-log');
+            const nodes = document.querySelectorAll('#election-demo .node');
+
+            log.innerHTML = '<strong>Event Log:</strong><br>Starting election...<br>';
+
+            // All become followers
+            nodes.forEach(node => {
+                node.className = 'node follower';
+                node.querySelector('.node-state').textContent = 'Follower';
+            });
+
+            setTimeout(() => {
+                log.innerHTML += 'Node 2 times out, becomes candidate<br>';
+                nodes[1].className = 'node candidate';
+                nodes[1].querySelector('.node-state').textContent = 'Candidate';
+
+                setTimeout(() => {
+                    log.innerHTML += 'Node 2 requests votes...<br>';
+                    log.innerHTML += 'Node 1 votes for Node 2<br>';
+                    log.innerHTML += 'Node 3 votes for Node 2<br>';
+
+                    setTimeout(() => {
+                        log.innerHTML += 'Node 2 wins election (2/3 votes)!<br>';
+                        nodes[1].className = 'node leader';
+                        nodes[1].querySelector('.node-state').textContent = 'Leader';
+                        currentLeader = 1;
+                        log.innerHTML += '<strong>Node 2 is now the leader!</strong><br>';
+                    }, 1000);
+                }, 1000);
+            }, 1000);
+        }
+
+        function killLeader() {
+            if (currentLeader === null) {
+                alert('Run election first to elect a leader!');
+                return;
+            }
+
+            const log = document.getElementById('election-log');
+            const nodes = document.querySelectorAll('#election-demo .node');
+
+            log.innerHTML = '<strong>Event Log:</strong><br>Killing current leader...<br>';
+            nodes[currentLeader].style.opacity = '0.3';
+            nodes[currentLeader].querySelector('.node-state').textContent = 'Dead';
+
+            setTimeout(() => {
+                log.innerHTML += 'Followers detect leader failure<br>';
+                log.innerHTML += 'Starting new election...<br>';
+                const newLeader = currentLeader === 0 ? 2 : 0;
+
+                setTimeout(() => {
+                    nodes[newLeader].className = 'node leader';
+                    nodes[newLeader].querySelector('.node-state').textContent = 'Leader';
+                    log.innerHTML += `<strong>Node ${newLeader + 1} is the new leader!</strong><br>`;
+                    currentLeader = newLeader;
+                }, 1500);
+            }, 1000);
+        }
+
+        function resetNodes() {
+            const nodes = document.querySelectorAll('#election-demo .node');
+            nodes.forEach(node => {
+                node.className = 'node follower';
+                node.querySelector('.node-state').textContent = 'Follower';
+                node.style.opacity = '1';
+            });
+            currentLeader = null;
+            document.getElementById('election-log').innerHTML = '<strong>Event Log:</strong><br>Cluster reset. All nodes are followers.<br>';
+        }
+
+        // MVCC simulation
+        let mvccVersions = [];
+        let mvccCurrentVersion = 0;
+        let mvccTransaction = null;
+
+        function mvccWrite() {
+            const key = document.getElementById('mvcc-key').value;
+            const value = document.getElementById('mvcc-value').value;
+
+            if (!key || !value) {
+                alert('Please enter both key and value');
+                return;
+            }
+
+            mvccCurrentVersion++;
+            mvccVersions.push({
+                version: mvccCurrentVersion,
+                key: key,
+                value: value,
+                timestamp: Date.now()
+            });
+
+            updateVersionDisplay();
+            document.getElementById('mvcc-output').innerHTML =
+                `✅ Written: ${key} = ${value} (version ${mvccCurrentVersion})`;
+        }
+
+        function updateVersionDisplay() {
+            const container = document.getElementById('version-history');
+            container.innerHTML = mvccVersions.map(v => `
+                <div class="mvcc-version-box">
+                    <div class="version-number">${v.version}</div>
+                    <strong>${v.key} = ${v.value}</strong><br>
+                    <small>v${v.version}</small>
+                </div>
+            `).join('');
+        }
+
+        function mvccReadLatest() {
+            if (mvccVersions.length === 0) {
+                document.getElementById('mvcc-output').innerHTML = '❌ No data yet';
+                return;
+            }
+
+            const latest = mvccVersions[mvccVersions.length - 1];
+            document.getElementById('mvcc-output').innerHTML =
+                `📖 Latest: ${latest.key} = ${latest.value} (version ${latest.version})`;
+        }
+
+        function mvccReadVersion(v) {
+            const version = mvccVersions.find(ver => ver.version === v);
+            if (!version) {
+                document.getElementById('mvcc-output').innerHTML = `❌ Version ${v} not found`;
+                return;
+            }
+
+            document.getElementById('mvcc-output').innerHTML =
+                `📖 Version ${v}: ${version.key} = ${version.value}`;
+        }
+
+        function mvccStartTransaction() {
+            mvccTransaction = mvccCurrentVersion;
+            document.getElementById('mvcc-output').innerHTML =
+                `🔒 Transaction started at version ${mvccTransaction}<br>` +
+                `All reads will see data as of version ${mvccTransaction}`;
+        }
+    </script>
+</body>
+</html>
